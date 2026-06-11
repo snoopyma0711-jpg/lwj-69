@@ -10,8 +10,10 @@ function clearOldData() {
     DELETE FROM operation_logs;
     DELETE FROM repair_orders;
     DELETE FROM users;
+    DELETE FROM sqlite_sequence WHERE name IN ('users', 'repair_orders', 'operation_logs');
   `);
-  console.log('已清空旧数据');
+  db.exec(`VACUUM`);
+  console.log('已清空旧数据并重置自增序列');
 }
 
 function insertUsers() {
@@ -120,11 +122,20 @@ function insertUsers() {
 
   tx();
   console.log(`已插入 ${users.length} 个用户`);
+  return users;
+}
+
+function getUserIdMap(): Record<string, number> {
+  const rows = db.prepare('SELECT id, username FROM users').all() as any[];
+  const map: Record<string, number> = {};
+  rows.forEach(row => {
+    map[row.username] = row.id;
+  });
+  return map;
 }
 
 function generateOrderNo(index: number): string {
   const now = new Date();
-  now.setDate(now.getDate() - Math.floor(Math.random() * 7));
   const timestamp = now.getFullYear().toString() +
     (now.getMonth() + 1).toString().padStart(2, '0') +
     now.getDate().toString().padStart(2, '0') +
@@ -134,115 +145,133 @@ function generateOrderNo(index: number): string {
   return `BX${timestamp}${String(index).padStart(3, '0')}`;
 }
 
-function insertSampleOrders() {
+function insertSampleOrders(userIdMap: Record<string, number>) {
   const orders = [
     {
-      resident_id: 2,
+      residentUsername: 'resident1',
       category: 'plumbing',
       description: '厨房水龙头漏水，水量较大，希望尽快处理。',
-      expected_date: new Date().toISOString().split('T')[0],
-      expected_slot: 'morning',
-      status: 'pending_assign',
-      technician_id: null
+      expectedDateOffset: 0,
+      expectedSlot: 'morning' as const,
+      status: 'pending_assign' as const,
+      techUsername: null
     },
     {
-      resident_id: 3,
+      residentUsername: 'resident2',
       category: 'elevator',
       description: '2号楼东侧电梯按钮失灵，按了没反应。',
-      expected_date: new Date().toISOString().split('T')[0],
-      expected_slot: 'afternoon',
-      status: 'pending_assign',
-      technician_id: null
+      expectedDateOffset: 0,
+      expectedSlot: 'afternoon' as const,
+      status: 'pending_assign' as const,
+      techUsername: null
     },
     {
-      resident_id: 4,
+      residentUsername: 'resident3',
       category: 'access',
       description: '单元门门禁刷卡无反应，无法正常开门。',
-      expected_date: new Date().toISOString().split('T')[0],
-      expected_slot: 'morning',
-      status: 'in_progress',
-      technician_id: 7
+      expectedDateOffset: 0,
+      expectedSlot: 'morning' as const,
+      status: 'in_progress' as const,
+      techUsername: 'tech1'
     },
     {
-      resident_id: 2,
+      residentUsername: 'resident2',
       category: 'civil',
       description: '卧室墙面有裂纹，需要检查并修补。',
-      expected_date: new Date().toISOString().split('T')[0],
-      expected_slot: 'afternoon',
-      status: 'pending_confirm',
-      technician_id: 8
+      expectedDateOffset: 0,
+      expectedSlot: 'afternoon' as const,
+      status: 'pending_confirm' as const,
+      techUsername: 'tech2'
     },
     {
-      resident_id: 5,
+      residentUsername: 'resident4',
       category: 'public',
       description: '小区花园路灯有几盏不亮，夜间行走不便。',
-      expected_date: new Date().toISOString().split('T')[0],
-      expected_slot: 'evening',
-      status: 'closed',
-      technician_id: 7
+      expectedDateOffset: 0,
+      expectedSlot: 'evening' as const,
+      status: 'closed' as const,
+      techUsername: 'tech1'
     },
     {
-      resident_id: 3,
+      residentUsername: 'resident2',
       category: 'plumbing',
       description: '卫生间下水道堵塞，排水困难。',
-      expected_date: new Date(Date.now() - 86400000 * 2).toISOString().split('T')[0],
-      expected_slot: 'morning',
-      status: 'in_progress',
-      technician_id: 7
+      expectedDateOffset: -2,
+      expectedSlot: 'morning' as const,
+      status: 'in_progress' as const,
+      techUsername: 'tech1'
     },
     {
-      resident_id: 6,
+      residentUsername: 'resident5',
       category: 'elevator',
       description: '5号楼电梯运行时有异响，速度不稳。',
-      expected_date: new Date(Date.now() - 86400000 * 3).toISOString().split('T')[0],
-      expected_slot: 'afternoon',
-      status: 'closed',
-      technician_id: 9
+      expectedDateOffset: -3,
+      expectedSlot: 'afternoon' as const,
+      status: 'closed' as const,
+      techUsername: 'tech3'
     },
     {
-      resident_id: 4,
+      residentUsername: 'resident4',
       category: 'plumbing',
       description: '客厅空调排水管漏水，滴到地板上。',
-      expected_date: new Date(Date.now() - 86400000 * 5).toISOString().split('T')[0],
-      expected_slot: 'evening',
-      status: 'closed',
-      technician_id: 8
+      expectedDateOffset: -5,
+      expectedSlot: 'evening' as const,
+      status: 'closed' as const,
+      techUsername: 'tech2'
     }
   ];
 
   const insertStmt = db.prepare(`
     INSERT INTO repair_orders 
     (order_no, resident_id, category, description, expected_date, expected_slot, 
-     status, technician_id, assigned_at, created_at, updated_at, closed_at, repaired_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     status, technician_id, assigned_at, created_at, updated_at, closed_at, repaired_at,
+     repair_result, repair_note, reject_count)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const tx = db.transaction(() => {
     orders.forEach((order, index) => {
+      const residentId = userIdMap[order.residentUsername];
+      const techId = order.techUsername ? userIdMap[order.techUsername] : null;
+
+      const expectedDate = new Date();
+      expectedDate.setDate(expectedDate.getDate() + order.expectedDateOffset);
+
       const createdAt = new Date();
-      createdAt.setDate(createdAt.getDate() - Math.floor(Math.random() * 7));
-      const assignedAt = order.technician_id ? new Date(createdAt.getTime() + 3600000) : null;
-      const repairedAt = order.status === 'pending_confirm' || order.status === 'closed' 
-        ? new Date((assignedAt || createdAt).getTime() + 7200000) 
+      createdAt.setDate(createdAt.getDate() - Math.floor(Math.random() * 3));
+      const assignedAt = techId ? new Date(createdAt.getTime() + 3600000) : null;
+      const repairedAt = order.status === 'pending_confirm' || order.status === 'closed'
+        ? new Date((assignedAt || createdAt).getTime() + 7200000)
         : null;
-      const closedAt = order.status === 'closed' 
-        ? new Date((repairedAt || createdAt).getTime() + 3600000) 
+      const closedAt = order.status === 'closed'
+        ? new Date((repairedAt || createdAt).getTime() + 3600000)
         : null;
+
+      const repairResult = (order.status === 'closed' || order.status === 'pending_confirm')
+        ? 'fixed' : null;
+      const repairNote = (order.status === 'closed')
+        ? '问题已处理完毕，设备恢复正常。'
+        : (order.status === 'pending_confirm')
+          ? '已上门检查，问题已修复，请确认是否满意。'
+          : null;
 
       insertStmt.run(
         generateOrderNo(index),
-        order.resident_id,
+        residentId,
         order.category,
         order.description,
-        order.expected_date,
-        order.expected_slot,
+        expectedDate.toISOString().split('T')[0],
+        order.expectedSlot,
         order.status,
-        order.technician_id,
+        techId,
         assignedAt ? assignedAt.toISOString() : null,
         createdAt.toISOString(),
         new Date().toISOString(),
         closedAt ? closedAt.toISOString() : null,
-        repairedAt ? repairedAt.toISOString() : null
+        repairedAt ? repairedAt.toISOString() : null,
+        repairResult,
+        repairNote,
+        0
       );
     });
   });
@@ -251,45 +280,12 @@ function insertSampleOrders() {
   console.log(`已插入 ${orders.length} 个示例工单`);
 }
 
-function updateClosedOrderDetails() {
-  const closedOrders = db.prepare('SELECT id FROM repair_orders WHERE status = ?').all('closed') as any[];
-  const updateStmt = db.prepare(`
-    UPDATE repair_orders 
-    SET repair_result = 'fixed', 
-        repair_note = '问题已处理完毕，设备恢复正常。'
-    WHERE id = ?
-  `);
-
-  const tx = db.transaction(() => {
-    closedOrders.forEach(order => updateStmt.run(order.id));
-  });
-  tx();
-  console.log('已更新关闭工单的处理详情');
-}
-
-function updatePendingConfirmOrder() {
-  const pendingOrders = db.prepare('SELECT id FROM repair_orders WHERE status = ?').all('pending_confirm') as any[];
-  const updateStmt = db.prepare(`
-    UPDATE repair_orders 
-    SET repair_result = 'fixed', 
-        repair_note = '已上门检查，问题已修复，请确认是否满意。'
-    WHERE id = ?
-  `);
-
-  const tx = db.transaction(() => {
-    pendingOrders.forEach(order => updateStmt.run(order.id));
-  });
-  tx();
-  console.log('已更新待确认工单的处理详情');
-}
-
 console.log('开始初始化测试数据...\n');
 
 clearOldData();
 insertUsers();
-insertSampleOrders();
-updateClosedOrderDetails();
-updatePendingConfirmOrder();
+const userIdMap = getUserIdMap();
+insertSampleOrders(userIdMap);
 
 const counts = {
   users: (db.prepare('SELECT COUNT(*) as count FROM users').get() as any).count,

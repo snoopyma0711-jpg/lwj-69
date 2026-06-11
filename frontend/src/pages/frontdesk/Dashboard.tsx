@@ -24,7 +24,7 @@ import {
 } from '@ant-design/icons';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as ReTooltip, Legend } from 'recharts';
 import axios from '../../api/axios';
-import { generateIdempotencyKey, getSlotLabel, getStatusColor, getStatusLabel } from '../../utils/helpers';
+import { getSlotLabel, getStatusColor, getStatusLabel } from '../../utils/helpers';
 import { useNavigate } from 'react-router-dom';
 
 const { Title, Text } = Typography;

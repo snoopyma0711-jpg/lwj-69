@@ -54,7 +54,7 @@ router.post('/orders', (req: AuthRequest, res: Response): void => {
       return;
     }
 
-    const tx = db.transaction(() => {
+    const result = db.transaction(() => {
       const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
       const recentOrder = db
         .prepare(
@@ -64,12 +64,11 @@ router.post('/orders', (req: AuthRequest, res: Response): void => {
         .get(userId, body.category, twentyFourHoursAgo);
 
       if (recentOrder) {
-        res.status(400).json({ error: '同一类别24小时内只能提交一次报修，请耐心等待处理' });
-        return;
+        return { type: 'error' as const, status: 400, data: { error: '同一类别24小时内只能提交一次报修，请耐心等待处理' } };
       }
 
       const orderNo = generateOrderNo();
-      const result = db
+      const insertResult = db
         .prepare(
           `INSERT INTO repair_orders 
            (order_no, resident_id, category, description, expected_date, expected_slot, status)
@@ -84,7 +83,7 @@ router.post('/orders', (req: AuthRequest, res: Response): void => {
           body.expectedSlot
         );
 
-      const orderId = result.lastInsertRowid as number;
+      const orderId = insertResult.lastInsertRowid as number;
       const order = db
         .prepare('SELECT * FROM repair_orders WHERE id = ?')
         .get(orderId) as RepairOrder;
@@ -113,10 +112,14 @@ router.post('/orders', (req: AuthRequest, res: Response): void => {
         responseData
       );
 
-      res.json(responseData);
-    });
+      return { type: 'success' as const, data: responseData };
+    })();
 
-    tx();
+    if (result.type === 'error') {
+      res.status(result.status).json(result.data);
+    } else {
+      res.json(result.data);
+    }
   } catch (err) {
     if (err instanceof z.ZodError) {
       res.status(400).json({ error: err.errors[0].message });
@@ -185,14 +188,13 @@ router.post('/orders/:id/confirm', (req: AuthRequest, res: Response): void => {
       return;
     }
 
-    const tx = db.transaction(() => {
+    const result = db.transaction(() => {
       const order = db
         .prepare('SELECT * FROM repair_orders WHERE id = ? AND resident_id = ?')
         .get(orderId, userId) as RepairOrder | undefined;
 
       if (!order) {
-        res.status(404).json({ error: '工单不存在' });
-        return;
+        return { type: 'error' as const, status: 404, data: { error: '工单不存在' } };
       }
 
       if (order.status === 'closed') {
@@ -205,13 +207,11 @@ router.post('/orders/:id/confirm', (req: AuthRequest, res: Response): void => {
           idempotencyKey, orderId, 'confirm_order', userId,
           order.status, order.status, responseData
         );
-        res.json({ ...responseData, idempotent: true });
-        return;
+        return { type: 'success' as const, data: { ...responseData, idempotent: true } };
       }
 
       if (order.status !== 'pending_confirm') {
-        res.status(400).json({ error: '当前工单状态不允许确认关单' });
-        return;
+        return { type: 'error' as const, status: 400, data: { error: '当前工单状态不允许确认关单' } };
       }
 
       const now = new Date().toISOString();
@@ -232,10 +232,14 @@ router.post('/orders/:id/confirm', (req: AuthRequest, res: Response): void => {
         'pending_confirm', 'closed', responseData
       );
 
-      res.json(responseData);
-    });
+      return { type: 'success' as const, data: responseData };
+    })();
 
-    tx();
+    if (result.type === 'error') {
+      res.status(result.status).json(result.data);
+    } else {
+      res.json(result.data);
+    }
   } catch (err) {
     if (err instanceof z.ZodError) {
       res.status(400).json({ error: err.errors[0].message });
@@ -263,39 +267,35 @@ router.post('/orders/:id/reject', (req: AuthRequest, res: Response): void => {
       return;
     }
 
-    const tx = db.transaction(() => {
+    const result = db.transaction(() => {
       const order = db
         .prepare('SELECT * FROM repair_orders WHERE id = ? AND resident_id = ?')
         .get(orderId, userId) as RepairOrder | undefined;
 
       if (!order) {
-        res.status(404).json({ error: '工单不存在' });
-        return;
+        return { type: 'error' as const, status: 404, data: { error: '工单不存在' } };
       }
 
       if (order.status === 'closed') {
-        res.status(409).json({ error: '工单已被关闭，无法打回。如有新问题请重新提交报修单。' });
-        return;
+        return { type: 'error' as const, status: 409, data: { error: '工单已被关闭，无法打回。如有新问题请重新提交报修单。' } };
       }
 
       if (order.status === 'dispute') {
-        res.status(400).json({ error: '工单已升级为争议单，等待前台处理' });
-        return;
+        return { type: 'error' as const, status: 400, data: { error: '工单已升级为争议单，等待前台处理' } };
       }
 
       if (order.status !== 'pending_confirm') {
-        res.status(400).json({ error: '当前工单状态不允许打回' });
-        return;
+        return { type: 'error' as const, status: 400, data: { error: '当前工单状态不允许打回' } };
       }
 
       const newRejectCount = order.reject_count + 1;
       const now = new Date().toISOString();
       let newStatus: RepairStatus;
-      let message: string;
+      let msg: string;
 
       if (newRejectCount >= 3) {
         newStatus = 'dispute';
-        message = '打回次数已达上限，工单已升级为争议单，前台将人工介入处理';
+        msg = '打回次数已达上限，工单已升级为争议单，前台将人工介入处理';
         db.prepare(
           `UPDATE repair_orders 
            SET status = 'dispute', 
@@ -307,7 +307,7 @@ router.post('/orders/:id/reject', (req: AuthRequest, res: Response): void => {
         ).run(newRejectCount, body.reason, body.reason, now, orderId);
       } else {
         newStatus = 'rework';
-        message = `工单已打回维修师傅返修（第${newRejectCount}次）`;
+        msg = `工单已打回维修师傅返修（第${newRejectCount}次）`;
         db.prepare(
           `UPDATE repair_orders 
            SET status = 'rework', 
@@ -319,7 +319,7 @@ router.post('/orders/:id/reject', (req: AuthRequest, res: Response): void => {
       }
 
       const responseData = {
-        message,
+        message: msg,
         orderId,
         status: newStatus,
         rejectCount: newRejectCount
@@ -330,10 +330,14 @@ router.post('/orders/:id/reject', (req: AuthRequest, res: Response): void => {
         'pending_confirm', newStatus, responseData
       );
 
-      res.json(responseData);
-    });
+      return { type: 'success' as const, data: responseData };
+    })();
 
-    tx();
+    if (result.type === 'error') {
+      res.status(result.status).json(result.data);
+    } else {
+      res.json(result.data);
+    }
   } catch (err) {
     if (err instanceof z.ZodError) {
       res.status(400).json({ error: err.errors[0].message });

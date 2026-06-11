@@ -88,27 +88,27 @@ router.post('/orders/:id/process', (req: AuthRequest, res: Response): void => {
       return;
     }
 
-    const tx = db.transaction(() => {
+    const result = db.transaction(() => {
       const order = db
         .prepare('SELECT * FROM repair_orders WHERE id = ?')
         .get(orderId) as RepairOrder | undefined;
 
       if (!order) {
-        res.status(404).json({ error: '工单不存在' });
-        return;
+        return { type: 'error' as const, status: 404, data: { error: '工单不存在' } };
       }
 
       if (order.technician_id !== userId) {
-        res.status(403).json({ error: '无权处理此工单' });
-        return;
+        return { type: 'error' as const, status: 403, data: { error: '无权处理此工单' } };
       }
 
       if (order.status === 'closed') {
-        res.status(409).json({
-          error: '该工单已被住户关闭，无需再处理。如住户有新需求请让其重新提交报修单。',
-          code: 'ORDER_ALREADY_CLOSED'
-        });
-        return;
+        return {
+          type: 'error' as const, status: 409,
+          data: {
+            error: '该工单已被住户关闭，无需再处理。如住户有新需求请让其重新提交报修单。',
+            code: 'ORDER_ALREADY_CLOSED'
+          }
+        };
       }
 
       if (order.status === 'pending_confirm' && order.repair_result) {
@@ -122,27 +122,25 @@ router.post('/orders/:id/process', (req: AuthRequest, res: Response): void => {
           idempotencyKey, orderId, 'process_order', userId,
           order.status, order.status, responseData
         );
-        res.json({ ...responseData, idempotent: true });
-        return;
+        return { type: 'success' as const, data: { ...responseData, idempotent: true } };
       }
 
       if (!['in_progress', 'rework'].includes(order.status)) {
-        res.status(400).json({ error: '当前工单状态不允许提交处理结果' });
-        return;
+        return { type: 'error' as const, status: 400, data: { error: '当前工单状态不允许提交处理结果' } };
       }
 
       const now = new Date().toISOString();
       const oldStatus = order.status;
       let newStatus: string;
-      let message: string;
+      let msg: string;
 
       if (body.result === 'fixed') {
         newStatus = 'pending_confirm';
-        message = '处理完成，等待住户确认';
+        msg = '处理完成，等待住户确认';
       } else {
         newStatus = 'in_progress';
-        message = body.result === 'revisit' 
-          ? '已记录，将安排二次上门' 
+        msg = body.result === 'revisit'
+          ? '已记录，将安排二次上门'
           : '已记录，待采购配件后继续处理';
       }
 
@@ -157,7 +155,7 @@ router.post('/orders/:id/process', (req: AuthRequest, res: Response): void => {
       ).run(newStatus, body.result, body.note, now, now, orderId);
 
       const responseData = {
-        message,
+        message: msg,
         orderId,
         status: newStatus,
         result: body.result
@@ -168,10 +166,14 @@ router.post('/orders/:id/process', (req: AuthRequest, res: Response): void => {
         oldStatus, newStatus, responseData
       );
 
-      res.json(responseData);
-    });
+      return { type: 'success' as const, data: responseData };
+    })();
 
-    tx();
+    if (result.type === 'error') {
+      res.status(result.status).json(result.data);
+    } else {
+      res.json(result.data);
+    }
   } catch (err) {
     if (err instanceof z.ZodError) {
       res.status(400).json({ error: err.errors[0].message });

@@ -176,14 +176,13 @@ router.post('/orders/:id/assign', (req: AuthRequest, res: Response): void => {
       return;
     }
 
-    const tx = db.transaction(() => {
+    const result = db.transaction(() => {
       const order = db
         .prepare('SELECT * FROM repair_orders WHERE id = ?')
         .get(orderId) as RepairOrder | undefined;
 
       if (!order) {
-        res.status(404).json({ error: '工单不存在' });
-        return;
+        return { type: 'error' as const, status: 404, data: { error: '工单不存在' } };
       }
 
       const technician = db
@@ -191,8 +190,7 @@ router.post('/orders/:id/assign', (req: AuthRequest, res: Response): void => {
         .get(body.technicianId, 'technician') as User | undefined;
 
       if (!technician) {
-        res.status(400).json({ error: '所选维修师傅不存在' });
-        return;
+        return { type: 'error' as const, status: 400, data: { error: '所选维修师傅不存在' } };
       }
 
       if (order.status === 'in_progress' && order.technician_id === body.technicianId) {
@@ -206,13 +204,11 @@ router.post('/orders/:id/assign', (req: AuthRequest, res: Response): void => {
           idempotencyKey, orderId, 'assign_order', userId,
           order.status, order.status, responseData
         );
-        res.json({ ...responseData, idempotent: true });
-        return;
+        return { type: 'success' as const, data: { ...responseData, idempotent: true } };
       }
 
       if (!['pending_assign', 'dispute'].includes(order.status)) {
-        res.status(400).json({ error: '当前工单状态不允许分派' });
-        return;
+        return { type: 'error' as const, status: 400, data: { error: '当前工单状态不允许分派' } };
       }
 
       const slotOrdersCount = db
@@ -232,11 +228,13 @@ router.post('/orders/:id/assign', (req: AuthRequest, res: Response): void => {
         ) as { count: number };
 
       if (slotOrdersCount.count >= 3) {
-        res.status(400).json({
-          error: `该师傅在${order.expected_date}的这个时段已有3单，请换师傅或换时段`,
-          conflictCount: slotOrdersCount.count
-        });
-        return;
+        return {
+          type: 'error' as const, status: 400,
+          data: {
+            error: `该师傅在${order.expected_date}的这个时段已有3单，请换师傅或换时段`,
+            conflictCount: slotOrdersCount.count
+          }
+        };
       }
 
       const now = new Date().toISOString();
@@ -263,10 +261,14 @@ router.post('/orders/:id/assign', (req: AuthRequest, res: Response): void => {
         oldStatus, 'in_progress', responseData
       );
 
-      res.json(responseData);
-    });
+      return { type: 'success' as const, data: responseData };
+    })();
 
-    tx();
+    if (result.type === 'error') {
+      res.status(result.status).json(result.data);
+    } else {
+      res.json(result.data);
+    }
   } catch (err) {
     if (err instanceof z.ZodError) {
       res.status(400).json({ error: err.errors[0].message });
@@ -386,14 +388,13 @@ router.post('/orders/:id/resolve-dispute', (req: AuthRequest, res: Response): vo
       return;
     }
 
-    const tx = db.transaction(() => {
+    const result = db.transaction(() => {
       const order = db
         .prepare('SELECT * FROM repair_orders WHERE id = ?')
         .get(orderId) as RepairOrder | undefined;
 
       if (!order) {
-        res.status(404).json({ error: '工单不存在' });
-        return;
+        return { type: 'error' as const, status: 404, data: { error: '工单不存在' } };
       }
 
       if (order.status === 'closed') {
@@ -406,13 +407,11 @@ router.post('/orders/:id/resolve-dispute', (req: AuthRequest, res: Response): vo
           idempotencyKey, orderId, 'resolve_dispute', userId,
           order.status, order.status, responseData
         );
-        res.json({ ...responseData, idempotent: true });
-        return;
+        return { type: 'success' as const, data: { ...responseData, idempotent: true } };
       }
 
       if (order.status !== 'dispute') {
-        res.status(400).json({ error: '该工单不是争议单状态' });
-        return;
+        return { type: 'error' as const, status: 400, data: { error: '该工单不是争议单状态' } };
       }
 
       const now = new Date().toISOString();
@@ -437,8 +436,7 @@ router.post('/orders/:id/resolve-dispute', (req: AuthRequest, res: Response): vo
         );
       } else {
         if (!body.newTechnicianId) {
-          res.status(400).json({ error: '重新分派需要选择维修师傅' });
-          return;
+          return { type: 'error' as const, status: 400, data: { error: '重新分派需要选择维修师傅' } };
         }
 
         const technician = db
@@ -446,8 +444,7 @@ router.post('/orders/:id/resolve-dispute', (req: AuthRequest, res: Response): vo
           .get(body.newTechnicianId, 'technician') as User | undefined;
 
         if (!technician) {
-          res.status(400).json({ error: '所选维修师傅不存在' });
-          return;
+          return { type: 'error' as const, status: 400, data: { error: '所选维修师傅不存在' } };
         }
 
         db.prepare(
@@ -472,10 +469,14 @@ router.post('/orders/:id/resolve-dispute', (req: AuthRequest, res: Response): vo
         );
       }
 
-      res.json(responseData);
-    });
+      return { type: 'success' as const, data: responseData };
+    })();
 
-    tx();
+    if (result.type === 'error') {
+      res.status(result.status).json(result.data);
+    } else {
+      res.json(result.data);
+    }
   } catch (err) {
     if (err instanceof z.ZodError) {
       res.status(400).json({ error: err.errors[0].message });

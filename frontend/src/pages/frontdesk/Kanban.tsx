@@ -9,6 +9,8 @@ import {
   Modal,
   Form,
   Select,
+  Input,
+  Radio,
   Space,
   Descriptions,
   Divider,
@@ -41,6 +43,7 @@ import {
 
 const { Title, Text } = Typography;
 const { Option } = Select;
+const { TextArea } = Input;
 
 interface KanbanData {
   kanban: {
