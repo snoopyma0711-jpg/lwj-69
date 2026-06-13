@@ -15,7 +15,9 @@ import {
   Tooltip,
   Descriptions,
   Divider,
-  Spin
+  Spin,
+  Rate,
+  Alert
 } from 'antd';
 import {
   UnorderedListOutlined,
@@ -26,7 +28,8 @@ import {
   UserOutlined,
   PhoneOutlined,
   EnvironmentOutlined,
-  EyeOutlined
+  EyeOutlined,
+  StarOutlined
 } from '@ant-design/icons';
 import axios from '../../api/axios';
 import { RepairOrder } from '../../types';
@@ -55,6 +58,12 @@ function ResidentOrders() {
     visible: false,
     order: null
   });
+  const [confirmModal, setConfirmModal] = useState<{ visible: boolean; order: RepairOrder | null }>({
+    visible: false,
+    order: null
+  });
+  const [confirmRating, setConfirmRating] = useState(0);
+  const [confirmComment, setConfirmComment] = useState('');
   const [rejectForm] = Form.useForm();
   const [actionLoading, setActionLoading] = useState(false);
 
@@ -73,12 +82,25 @@ function ResidentOrders() {
     fetchOrders();
   }, []);
 
-  const handleConfirm = async (order: RepairOrder) => {
+  const handleConfirm = async () => {
+    if (!confirmModal.order) return;
+    if (confirmRating === 0) {
+      message.warning('请为本次维修打分后再关单');
+      return;
+    }
+
     setActionLoading(true);
     try {
-      const idempotencyKey = generateIdempotencyKey(`confirm_${order.id}`);
-      await axios.post(`/resident/orders/${order.id}/confirm`, { idempotencyKey });
+      const idempotencyKey = generateIdempotencyKey(`confirm_${confirmModal.order.id}`);
+      await axios.post(`/resident/orders/${confirmModal.order.id}/confirm`, {
+        rating: confirmRating,
+        ratingComment: confirmComment || undefined,
+        idempotencyKey
+      });
       message.success('确认成功，工单已关闭');
+      setConfirmModal({ visible: false, order: null });
+      setConfirmRating(0);
+      setConfirmComment('');
       fetchOrders();
       setDetailModal({ visible: false, order: null });
     } catch {
@@ -110,23 +132,9 @@ function ResidentOrders() {
   };
 
   const showConfirmModal = (order: RepairOrder) => {
-    Modal.confirm({
-      title: '确认关单',
-      icon: <CheckOutlined style={{ color: '#52c41a' }} />,
-      content: (
-        <div>
-          <p>您确认对本次维修服务满意吗？</p>
-          <p style={{ fontSize: 12, color: '#999', margin: 0 }}>
-            确认后工单将关闭，如有新问题请重新提交报修单。
-          </p>
-        </div>
-      ),
-      okText: '满意关单',
-      okButtonProps: { type: 'primary', style: { background: '#52c41a' } },
-      cancelText: '再想想',
-      confirmLoading: actionLoading,
-      onOk: () => handleConfirm(order)
-    });
+    setConfirmRating(0);
+    setConfirmComment('');
+    setConfirmModal({ visible: true, order });
   };
 
   const renderOrderCard = (order: RepairOrder) => {
@@ -211,6 +219,12 @@ function ResidentOrders() {
                 )}
                 {order.repairedAt && (
                   <span>维修时间：{order.repairedAt}</span>
+                )}
+                {order.rating !== undefined && order.rating !== null && (
+                  <span>
+                    <StarOutlined style={{ marginRight: 4, color: '#faad14' }} />
+                    评分：<Rate disabled value={order.rating} style={{ fontSize: 12 }} />
+                  </span>
                 )}
                 <span>提交：{order.createdAt}</span>
               </div>
@@ -404,6 +418,28 @@ function ResidentOrders() {
                 />
               </>
             )}
+
+            {detailModal.order.rating !== undefined && detailModal.order.rating !== null && (
+              <>
+                <Divider orientation="left">满意度评价</Divider>
+                <div style={{
+                  background: '#fffbe6',
+                  padding: 12,
+                  borderRadius: 4
+                }}>
+                  <Space>
+                    <StarOutlined style={{ color: '#faad14' }} />
+                    <Rate disabled value={detailModal.order.rating} />
+                    <Text strong>{detailModal.order.rating} 星</Text>
+                  </Space>
+                  {detailModal.order.ratingComment && (
+                    <div style={{ marginTop: 8, color: '#595959' }}>
+                      {detailModal.order.ratingComment}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         )}
       </Modal>
@@ -447,6 +483,62 @@ function ResidentOrders() {
             />
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        title="满意度评价 - 确认关单"
+        open={confirmModal.visible}
+        onCancel={() => {
+          setConfirmModal({ visible: false, order: null });
+          setConfirmRating(0);
+          setConfirmComment('');
+        }}
+        onOk={handleConfirm}
+        confirmLoading={actionLoading}
+        okText="确认关单"
+        okButtonProps={{
+          type: 'primary',
+          style: { background: confirmRating > 0 ? '#52c41a' : undefined },
+          disabled: confirmRating === 0
+        }}
+        cancelText="再想想"
+      >
+        <div style={{ marginBottom: 16 }}>
+          <p style={{ marginBottom: 8, fontWeight: 500 }}>
+            请为本次维修服务打分：
+          </p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <Rate
+              value={confirmRating}
+              onChange={(value) => setConfirmRating(value)}
+              style={{ fontSize: 32 }}
+            />
+            {confirmRating > 0 && (
+              <Text strong style={{ fontSize: 16, color: '#faad14' }}>
+                {confirmRating} 星
+              </Text>
+            )}
+          </div>
+          {confirmRating === 0 && (
+            <Text type="danger" style={{ fontSize: 12, marginTop: 4, display: 'block' }}>
+              请先打分才能关单
+            </Text>
+          )}
+        </div>
+        <div style={{ marginBottom: 16 }}>
+          <p style={{ marginBottom: 8 }}>评价文字（选填，不超过100字）：</p>
+          <TextArea
+            rows={3}
+            placeholder="请简要描述您对本次维修服务的评价..."
+            showCount
+            maxLength={100}
+            value={confirmComment}
+            onChange={(e) => setConfirmComment(e.target.value)}
+          />
+        </div>
+        <p style={{ fontSize: 12, color: '#999', margin: 0 }}>
+          确认后工单将关闭，如有新问题请重新提交报修单。
+        </p>
       </Modal>
     </div>
   );

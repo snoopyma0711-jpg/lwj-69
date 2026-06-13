@@ -8,7 +8,7 @@ if (!fs.existsSync(DB_DIR)) {
 }
 
 const DB_PATH = path.join(DB_DIR, 'property_repair.db');
-const db = new Database(DB_PATH);
+const db: Database.Database = new Database(DB_PATH);
 
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
@@ -45,6 +45,8 @@ function initDatabase() {
       last_reject_reason TEXT,
       dispute_reason TEXT,
       closed_at DATETIME,
+      rating INTEGER CHECK(rating IS NULL OR (rating >= 1 AND rating <= 5)),
+      rating_comment TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       operation_idempotency_key TEXT,

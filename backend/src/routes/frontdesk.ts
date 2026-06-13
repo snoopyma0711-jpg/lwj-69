@@ -358,12 +358,55 @@ router.get('/dashboard', (req: AuthRequest, res: Response): void => {
       value: c.count
     }));
 
+    const technicians = db
+      .prepare(
+        `SELECT id, real_name FROM users WHERE role = 'technician' ORDER BY real_name`
+      )
+      .all() as { id: number; real_name: string }[];
+
+    const leaderboardData = technicians.map(tech => {
+      const stats = db
+        .prepare(
+          `SELECT 
+            COUNT(*) as total_count,
+            COALESCE(AVG(rating), 0) as avg_rating
+           FROM repair_orders 
+           WHERE technician_id = ?`
+        )
+        .get(tech.id) as { total_count: number; avg_rating: number };
+
+      const ratedStats = db
+        .prepare(
+          `SELECT COUNT(*) as rated_count
+           FROM repair_orders 
+           WHERE technician_id = ? AND rating IS NOT NULL`
+        )
+        .get(tech.id) as { rated_count: number };
+
+      return {
+        id: tech.id,
+        name: tech.real_name,
+        avgRating: ratedStats.rated_count > 0
+          ? Math.round(stats.avg_rating * 10) / 10
+          : null,
+        totalOrders: stats.total_count
+      };
+    });
+
+    leaderboardData.sort((a, b) => {
+      if (a.avgRating === null && b.avgRating === null) return 0;
+      if (a.avgRating === null) return 1;
+      if (b.avgRating === null) return -1;
+      return b.avgRating - a.avgRating;
+    });
+
     res.json({
       weekNewCount: weekNewResult.count,
       avgDurationHours,
       categoryDistribution,
       overdueOrders: formattedOverdue,
-      overdueCount: formattedOverdue.length
+      overdueCount: formattedOverdue.length,
+      technicianLeaderboard: leaderboardData
     });
   } catch (err) {
     console.error('获取仪表盘数据失败:', err);

@@ -44,6 +44,8 @@ export interface RepairOrder {
   last_reject_reason?: string;
   dispute_reason?: string;
   closed_at?: string;
+  rating?: number;
+  rating_comment?: string;
   created_at: string;
   updated_at: string;
   operation_idempotency_key?: string;

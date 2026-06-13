@@ -14,6 +14,45 @@ const processOrderSchema = z.object({
   idempotencyKey: z.string().optional()
 });
 
+router.get('/stats', (req: AuthRequest, res: Response): void => {
+  try {
+    const userId = req.user!.userId;
+
+    const totalOrders = db
+      .prepare(
+        `SELECT COUNT(*) as count FROM repair_orders WHERE technician_id = ?`
+      )
+      .get(userId) as { count: number };
+
+    const ratingStats = db
+      .prepare(
+        `SELECT 
+          COUNT(*) as rated_count,
+          COALESCE(AVG(rating), 0) as avg_rating,
+          COALESCE(SUM(CASE WHEN rating >= 4 THEN 1 ELSE 0 END), 0) as good_count
+         FROM repair_orders 
+         WHERE technician_id = ? AND rating IS NOT NULL`
+      )
+      .get(userId) as { rated_count: number; avg_rating: number; good_count: number };
+
+    const goodRate = ratingStats.rated_count > 0
+      ? Math.round((ratingStats.good_count / ratingStats.rated_count) * 100)
+      : 0;
+
+    res.json({
+      totalOrders: totalOrders.count,
+      avgRating: ratingStats.rated_count > 0
+        ? Math.round(ratingStats.avg_rating * 10) / 10
+        : 0,
+      ratedCount: ratingStats.rated_count,
+      goodRate
+    });
+  } catch (err) {
+    console.error('获取师傅统计失败:', err);
+    res.status(500).json({ error: '获取统计数据失败' });
+  }
+});
+
 router.get('/orders', (req: AuthRequest, res: Response): void => {
   try {
     const userId = req.user!.userId;

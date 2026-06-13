@@ -17,6 +17,8 @@ const createOrderSchema = z.object({
 });
 
 const confirmOrderSchema = z.object({
+  rating: z.number().int().min(1, '请为本次维修打分').max(5, '评分最高5星'),
+  ratingComment: z.string().max(100, '评价文字不超过100字').optional(),
   idempotencyKey: z.string().optional()
 });
 
@@ -160,6 +162,8 @@ router.get('/orders', (req: AuthRequest, res: Response): void => {
       rejectCount: o.reject_count,
       lastRejectReason: o.last_reject_reason,
       disputeReason: o.dispute_reason,
+      rating: o.rating,
+      ratingComment: o.rating_comment,
       createdAt: o.created_at,
       assignedAt: o.assigned_at,
       repairedAt: o.repaired_at,
@@ -217,14 +221,15 @@ router.post('/orders/:id/confirm', (req: AuthRequest, res: Response): void => {
       const now = new Date().toISOString();
       db.prepare(
         `UPDATE repair_orders 
-         SET status = 'closed', closed_at = ?, updated_at = ?
+         SET status = 'closed', closed_at = ?, rating = ?, rating_comment = ?, updated_at = ?
          WHERE id = ?`
-      ).run(now, now, orderId);
+      ).run(now, body.rating, body.ratingComment || null, now, orderId);
 
       const responseData = {
         message: '确认成功，工单已关闭',
         orderId,
-        status: 'closed'
+        status: 'closed',
+        rating: body.rating
       };
 
       recordIdempotentOperation(

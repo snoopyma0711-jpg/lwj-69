@@ -17,7 +17,9 @@ import {
   Alert,
   Radio,
   Row,
-  Col
+  Col,
+  Statistic,
+  Progress
 } from 'antd';
 import {
   ToolOutlined,
@@ -30,7 +32,10 @@ import {
   CarOutlined,
   ShoppingCartOutlined,
   ReloadOutlined,
-  WarningOutlined
+  WarningOutlined,
+  StarOutlined,
+  TrophyOutlined,
+  FileTextOutlined
 } from '@ant-design/icons';
 import axios from '../../api/axios';
 import { RepairOrder, RepairResult, RESULT_OPTIONS } from '../../types';
@@ -50,6 +55,7 @@ const { TextArea } = Input;
 function TechnicianOrders() {
   const [orders, setOrders] = useState<RepairOrder[]>([]);
   const [loading, setLoading] = useState(false);
+  const [stats, setStats] = useState<{ totalOrders: number; avgRating: number; ratedCount: number; goodRate: number } | null>(null);
   const [detailModal, setDetailModal] = useState<{ visible: boolean; order: RepairOrder | null }>({
     visible: false,
     order: null
@@ -72,8 +78,17 @@ function TechnicianOrders() {
     }
   };
 
+  const fetchStats = async () => {
+    try {
+      const response: any = await axios.get('/technician/stats');
+      setStats(response);
+    } catch {
+    }
+  };
+
   useEffect(() => {
     fetchOrders();
+    fetchStats();
   }, []);
 
   const handleProcess = async () => {
@@ -289,12 +304,70 @@ function TechnicianOrders() {
         </div>
         <Button
           icon={<ReloadOutlined />}
-          onClick={fetchOrders}
+          onClick={() => { fetchOrders(); fetchStats(); }}
           loading={loading}
         >
           刷新
         </Button>
       </div>
+
+      {stats && (
+        <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+          <Col xs={24} sm={8}>
+            <Card
+              style={{ borderRadius: 8, border: 'none', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}
+              bodyStyle={{ padding: 20 }}
+            >
+              <Statistic
+                title={<span style={{ color: 'rgba(255,255,255,0.8)' }}>历史平均评分</span>}
+                value={stats.avgRating}
+                precision={1}
+                prefix={<StarOutlined />}
+                suffix="/ 5"
+                valueStyle={{ color: 'white', fontSize: 28, fontWeight: 'bold' }}
+              />
+              <div style={{ marginTop: 4, fontSize: 12, color: 'rgba(255,255,255,0.7)' }}>
+                共 {stats.ratedCount} 条评价
+              </div>
+            </Card>
+          </Col>
+          <Col xs={24} sm={8}>
+            <Card
+              style={{ borderRadius: 8, border: 'none', background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)' }}
+              bodyStyle={{ padding: 20 }}
+            >
+              <Statistic
+                title={<span style={{ color: 'rgba(255,255,255,0.8)' }}>总接单数</span>}
+                value={stats.totalOrders}
+                prefix={<FileTextOutlined />}
+                suffix="单"
+                valueStyle={{ color: 'white', fontSize: 28, fontWeight: 'bold' }}
+              />
+            </Card>
+          </Col>
+          <Col xs={24} sm={8}>
+            <Card
+              style={{ borderRadius: 8, border: 'none', background: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)' }}
+              bodyStyle={{ padding: 20 }}
+            >
+              <Statistic
+                title={<span style={{ color: 'rgba(255,255,255,0.8)' }}>好评率（4星及以上）</span>}
+                value={stats.goodRate}
+                suffix="%"
+                prefix={<TrophyOutlined />}
+                valueStyle={{ color: 'white', fontSize: 28, fontWeight: 'bold' }}
+              />
+              <Progress
+                percent={stats.goodRate}
+                showInfo={false}
+                strokeColor="rgba(255,255,255,0.6)"
+                trailColor="rgba(255,255,255,0.2)"
+                style={{ marginTop: 8 }}
+              />
+            </Card>
+          </Col>
+        </Row>
+      )}
 
       {loading ? (
         <div style={{ textAlign: 'center', padding: 80 }}>

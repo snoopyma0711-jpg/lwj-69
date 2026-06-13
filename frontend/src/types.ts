@@ -62,6 +62,8 @@ export interface RepairOrder {
   rejectCount: number;
   lastRejectReason?: string;
   disputeReason?: string;
+  rating?: number;
+  ratingComment?: string;
   createdAt: string;
   assignedAt?: string;
   repairedAt?: string;

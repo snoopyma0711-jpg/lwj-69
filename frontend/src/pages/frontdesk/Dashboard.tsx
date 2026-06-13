@@ -12,7 +12,8 @@ import {
   Tooltip,
   Empty,
   Alert,
-  Space
+  Space,
+  Avatar
 } from 'antd';
 import {
   FundOutlined,
@@ -20,7 +21,11 @@ import {
   ClockCircleOutlined,
   PieChartOutlined,
   WarningOutlined,
-  ReloadOutlined
+  ReloadOutlined,
+  TrophyOutlined,
+  StarOutlined,
+  UserOutlined,
+  CrownOutlined
 } from '@ant-design/icons';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as ReTooltip, Legend } from 'recharts';
 import axios from '../../api/axios';
@@ -35,6 +40,7 @@ interface DashboardData {
   categoryDistribution: { name: string; value: number }[];
   overdueOrders: any[];
   overdueCount: number;
+  technicianLeaderboard: { id: number; name: string; avgRating: number | null; totalOrders: number }[];
 }
 
 const COLORS = ['#1677ff', '#52c41a', '#faad14', '#722ed1', '#eb2f96'];
@@ -297,6 +303,86 @@ function FrontdeskDashboard() {
                 <div style={{ marginTop: 8, fontSize: 12, color: 'rgba(255,255,255,0.7)' }}>
                   涉及的报修类别覆盖度
                 </div>
+              </Card>
+            </Col>
+          </Row>
+
+          <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+            <Col xs={24}>
+              <Card
+                title={
+                  <Space>
+                    <TrophyOutlined style={{ color: '#faad14' }} />
+                    维修师傅排行榜
+                    <Tag color="gold" style={{ marginLeft: 8 }}>按平均评分</Tag>
+                  </Space>
+                }
+                style={{ borderRadius: 8 }}
+                extra={
+                  <Text type="secondary">实时统计</Text>
+                }
+              >
+                {data.technicianLeaderboard.length === 0 ? (
+                  <Empty description="暂无师傅数据" style={{ padding: 40 }} />
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {data.technicianLeaderboard.map((tech, index) => (
+                      <div
+                        key={tech.id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          padding: '12px 16px',
+                          background: index === 0 ? 'linear-gradient(135deg, #fff9e6 0%, #fffbe6 100%)' :
+                            index === 1 ? 'linear-gradient(135deg, #f5f5f5 0%, #fafafa 100%)' :
+                            index === 2 ? 'linear-gradient(135deg, #fff3e0 0%, #fff8e1 100%)' :
+                            '#fafafa',
+                          borderRadius: 8,
+                          border: index < 3 ? `1px solid ${index === 0 ? '#ffd54f' : index === 1 ? '#e0e0e0' : '#ffcc80'}` : '1px solid #f0f0f0'
+                        }}
+                      >
+                        <div style={{
+                          width: 36,
+                          height: 36,
+                          borderRadius: '50%',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: 16,
+                          fontWeight: 'bold',
+                          marginRight: 16,
+                          background: index === 0 ? '#ffd54f' :
+                            index === 1 ? '#e0e0e0' :
+                            index === 2 ? '#ffcc80' : '#f0f0f0',
+                          color: index < 3 ? '#fff' : '#999'
+                        }}>
+                          {index < 3 ? (
+                            <CrownOutlined />
+                          ) : (
+                            index + 1
+                          )}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <Text strong style={{ fontSize: 15 }}>{tech.name}</Text>
+                          <Text type="secondary" style={{ marginLeft: 12 }}>
+                            接单 {tech.totalOrders} 单
+                          </Text>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          {tech.avgRating !== null ? (
+                            <>
+                              <StarOutlined style={{ color: '#faad14', fontSize: 16 }} />
+                              <Text strong style={{ fontSize: 18, color: '#faad14' }}>{tech.avgRating}</Text>
+                              <Text type="secondary" style={{ fontSize: 12 }}>分</Text>
+                            </>
+                          ) : (
+                            <Text type="secondary" style={{ fontSize: 13 }}>暂无评分</Text>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </Card>
             </Col>
           </Row>
